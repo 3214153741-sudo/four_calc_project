@@ -62,7 +62,6 @@ class BinaryNode(ExprNode):
         if isinstance(self.right, BinaryNode):
             r_str = f"({r_str})"
         return f"{l_str} {self.op} {r_str}"
-
     def normalize_key(self):
         """生成标准化字符串key，实现交换律去重：+ * 的左右子树排序"""
         lk = self.left.normalize_key()
@@ -72,7 +71,6 @@ class BinaryNode(ExprNode):
             if lk > rk:
                 lk, rk = rk, lk
         return f"({self.op},{lk},{rk})"
-
     def evaluate(self):
         a = self.left.evaluate()
         b = self.right.evaluate()
@@ -86,7 +84,6 @@ class BinaryNode(ExprNode):
             return a / b
         else:
             raise ValueError("invalid op")
-
 
 def gen_expr(max_range:int, max_ops:int=3) -> ExprNode:
     """
@@ -169,31 +166,109 @@ def parse_frac(s:str) -> Fraction:
     else:
         return Fraction(int(s),1)
 
-# ===================== 【TODO 后续替换：完整中缀表达式求值器】=====================
-# 当前grade简易版：直接读取答案文件，后面我们替换成【解析题目字符串，自动计算标准答案】
+# ========== 新增：调度场算法，中缀表达式 → 后缀表达式，计算分数结果 ==========
+def tokenize(infix_str: str):
+    """分词：拆分表达式为token列表，支持带分数、括号、运算符"""
+    tokens = []
+    i = 0
+    s = infix_str.strip()
+    while i < len(s):
+        ch = s[i]
+        if ch in '()+-*/':
+            tokens.append(ch)
+            i += 1
+        elif ch.isdigit() or ch == "'" or ch == '/':
+            j = i
+            while j < len(s) and (s[j].isdigit() or s[j] in "'/"):
+                j += 1
+            tokens.append(s[i:j])
+            i = j
+        elif ch == ' ':
+            i += 1
+        else:
+            i += 1
+    return tokens
+
+def shunting_yard(tokens):
+    """调度场算法，中缀转后缀"""
+    precedence = {'+':1, '-':1, '*':2, '/':2}
+    op_stack = []
+    postfix = []
+    for tok in tokens:
+        if tok[0].isdigit():
+            postfix.append(tok)
+        elif tok == '(':
+            op_stack.append(tok)
+        elif tok == ')':
+            while op_stack and op_stack[-1] != '(':
+                postfix.append(op_stack.pop())
+            op_stack.pop()
+        else:
+            while op_stack and op_stack[-1] != '(' and precedence[op_stack[-1]] >= precedence[tok]:
+                postfix.append(op_stack.pop())
+            op_stack.append(tok)
+    while op_stack:
+        postfix.append(op_stack.pop())
+    return postfix
+
+def calc_postfix(postfix):
+    """计算后缀表达式，使用Fraction精确运算"""
+    st = []
+    for tok in postfix:
+        if tok in "+-*/":
+            b = st.pop()
+            a = st.pop()
+            if tok == '+':
+                res = a + b
+            elif tok == '-':
+                res = a - b
+            elif tok == '*':
+                res = a * b
+            elif tok == '/':
+                res = a / b
+            st.append(res)
+        else:
+            st.append(parse_frac(tok))
+    return st[0]
+
+def calc_expression(expr_text:str) -> Fraction:
+    """入口函数：输入表达式字符串，直接计算表达式结果"""
+    tokens = tokenize(expr_text)
+    post = shunting_yard(tokens)
+    return calc_postfix(post)
+
+# ========== 修改后的grade函数：读取题目文件，解析表达式自动算标准答案 ==========
 def grade(ex_file:str, ans_file:str):
     correct = []
     wrong = []
-    # 读取题目和学生答案
+    # 读取题目文件
     with open(ex_file, "r", encoding="utf-8") as f:
         ex_lines = f.readlines()
+    # 读取学生答案文件
     with open(ans_file, "r", encoding="utf-8") as f:
         ans_lines = f.readlines()
+
     for idx, ex_line in enumerate(ex_lines, start=1):
-        a_line = ans_lines[idx-1]
         try:
-            # 提取学生答案
-            stu_ans_str = re.sub(r'^\d+\.\s*', '', a_line.strip())
+            # 提取题目表达式，去掉编号、末尾等号
+            ex_line = ex_line.strip()
+            expr_str = re.sub(r'^\d+\.\s*', '', ex_line)
+            expr_str = re.sub(r'\s*=$', '', expr_str)
+            # 【核心】解析题目式子，自己算出标准答案
+            std_frac = calc_expression(expr_str)
+
+            # 读取学生答案
+            a_line = ans_lines[idx-1].strip()
+            stu_ans_str = re.sub(r'^\d+\.\s*', '', a_line)
             stu_frac = parse_frac(stu_ans_str)
-            # ========== 这里后面替换成表达式求值，现在临时复用参考答案做测试 ==========
-            std_ans_str = re.sub(r'^\d+\.\s*', '', ans_lines[idx-1].strip())
-            std_frac = parse_frac(std_ans_str)
+
             if stu_frac == std_frac:
                 correct.append(idx)
             else:
                 wrong.append(idx)
         except Exception:
             wrong.append(idx)
+
     # 输出Grade.txt
     with open("Grade.txt", "w", encoding="utf-8") as f:
         f.write(f"Correct: {len(correct)} ({','.join(map(str, correct))})\n")
@@ -209,7 +284,6 @@ def main():
     parser.add_argument("-e", type=str, help="题目文件路径")
     parser.add_argument("-a", type=str, help="学生答案文件路径")
     args = parser.parse_args()
-
     # 模式判断
     if args.n is not None and args.r is not None:
         # 生成题目模式

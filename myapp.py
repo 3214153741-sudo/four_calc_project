@@ -114,6 +114,10 @@ def gen_expr(max_range:int, max_ops:int=3) -> ExprNode:
         right = gen_expr(max_range, right_ops)
         if left is None or right is None:
             return None
+        val_right = right.evaluate()
+        # 修复：除数不能为0
+        if op == '/' and val_right == 0:
+            return None
         node = BinaryNode(op, left, right)
         val = node.evaluate()
         # 规则校验
@@ -166,7 +170,7 @@ def parse_frac(s:str) -> Fraction:
     else:
         return Fraction(int(s),1)
 
-# ========== 新增：调度场算法，中缀表达式 → 后缀表达式，计算分数结果 ==========
+# ========== 调度场算法，中缀表达式 → 后缀表达式，计算分数结果 ==========
 def tokenize(infix_str: str):
     """分词：拆分表达式为token列表，支持带分数、括号、运算符"""
     tokens = []
